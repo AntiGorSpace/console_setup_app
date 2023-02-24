@@ -1,4 +1,5 @@
 import sqlite3
+import os
 
 from typing import Any
 
@@ -11,6 +12,7 @@ class SQLite():
 		return cls.instance
 		
 	def __init__(self, path:str=''):
+		if not os.path.exists(f'{path}/data'): os.mkdir(f'{path}/data')
 		if not self.db_path: self.db_path = f'{path}/data/base.sqlite'
 		self.db_con = sqlite3.connect(self.db_path)
 		self.db_cur = self.db_con.cursor()
