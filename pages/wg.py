@@ -5,14 +5,6 @@ from classes.Page import Page
 from classes.SQLite import SQLite
 
 
-# os.system('apt install wireguard')
-
-# os.system('chmod 600 /etc/wireguard/privatekey')
-# os.system('echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf')
-# os.system('sysctl -p')
-# os.system('systemctl enable wg-quick@wg0.service')
-# os.system('systemctl start wg-quick@wg0.service')
-
 class WGUser():
 	id:int
 	login:str
@@ -28,17 +20,37 @@ class WGMain():
 	base_path = '/etc/wireguard'
 	wg_changes = False
 	server_ip = subprocess.check_output(["curl", "ifconfig.me"]).decode('UTF-8')
-
+	installed = False
 	def __new__(cls):
 		if not hasattr(cls, 'instance'):
 			cls.instance = super(WGMain, cls).__new__(cls)
 		return cls.instance
 
 	def __init__(self):
-		if not os.path.exists(f'{self.base_path}/temp'): os.mkdir(f'{self.base_path}/temp')
-		self.database = SQLite()
+		pass
+
+	def check_installetion(self):
+		if os.path.exists(f'{self.base_path}'):
+			self.installed = True
+		return self.installed
+	
+	def install(self):
+		os.system('sudo apt install wireguard')
+		if not os.path.exists(f'{self.base_path}'): 
+			os.mkdir(f'{self.base_path}')
+		self.init_table()
+		self.gen_conf_file()
+		os.system('echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf')
+		os.system('sysctl -p')
+		os.system('systemctl enable wg-quick@wg0.service')
+		os.system('systemctl start wg-quick@wg0.service')
+		self.restart()
+		
 
 	def init_table(self):
+		if not os.path.exists(f'{self.base_path}/temp'): 
+			os.mkdir(f'{self.base_path}/temp')
+		self.database = SQLite()
 		self.database.execute(
 			"CREATE TABLE if not exists wire_guard_keys(id unique primary key, login unique, public, private)"
 		)
@@ -134,7 +146,7 @@ class WGMain():
 		self.database.execute('delete from wire_guard_keys where id = :id', {'id':user_id})
 		self.wg_changes = True
 
-	def gen_conf_files(self):
+	def gen_conf_file(self):
 		conf = open(f'{self.base_path}/wg0.conf', "w")
 		server = self.get_user(0)
 		conf.write(f'[Interface]\n')
@@ -180,7 +192,7 @@ class WGMain():
 
 	def restart(self, force:bool=False):
 		if not self.wg_changes and not force: return
-		self.gen_conf_files()
+		self.gen_conf_file()
 		self.gen_user_conf_files()
 		os.system('systemctl restart wg-quick@wg0')
 		self.wg_changes = False
@@ -189,15 +201,26 @@ class WGPage(Page):
 	page_label = 'WireGuard'
 	wg = WGMain()
 	def before_add(self):
-		self.wg.init_table()
-		self.options = {
-			'l': {'name': 'User list', 'page':WGUserList()},
-			'a': {'name': 'Add User', 'page':WGAddUser()},
-			'r': {'name': 'Restart'},
-		}
+		self.wg.check_installetion()
+		if self.wg.installed:
+			self.wg.init_table()
+			self.options = {
+				'l': {'name': 'User list', 'page':WGUserList()},
+				'a': {'name': 'Add User', 'page':WGAddUser()},
+				'r': {'name': 'Restart'},
+			}
+		else:
+			self.options = {
+				'i': {'name': 'Install'}
+			}
 	def not_page_selector(self, input_text:str):
-		if input_text == 'r':
+		if input_text == 'r' and self.wg.installed:
 			self.wg.restart()
+		elif input_text == 'i' and not self.wg.installed:
+			self.wg.install()
+
+	def after_return(self):
+		return self.before_add()
 
 	def back(self):
 		self.wg.restart()
